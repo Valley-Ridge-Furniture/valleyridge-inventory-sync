@@ -37,6 +37,25 @@
           ]
         }
       }
+    },
+    {
+      "Id": "ProcessInventoryTriggerCSV",
+      "LambdaFunctionArn": "arn:aws:lambda:us-east-1:413362489612:function:valleyridge-process-inventory-incremental",
+      "Events": ["s3:ObjectCreated:*"],
+      "Filter": {
+        "Key": {
+          "FilterRules": [
+            {
+              "Name": "prefix",
+              "Value": "incoming/"
+            },
+            {
+              "Name": "suffix",
+              "Value": ".csv"
+            }
+          ]
+        }
+      }
     }
   ]
 } 

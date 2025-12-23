@@ -16,8 +16,15 @@ Globals:
         S3_BUCKET: !Ref S3BucketName
         SUPPORT_EMAIL: support@valleyridge.ca
         LOG_LEVEL: INFO
+        SNS_TOPIC_ARN: !Ref DailyReportTopic
 
 Resources:
+  DailyReportTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: valleyridge-inventory-daily-reports
+      DisplayName: Valley Ridge Inventory Daily Reports
+
   ProcessInventoryIncrementalFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -37,6 +44,8 @@ Resources:
             BucketName: !Ref S3BucketName
         - CloudWatchLogsFullAccess
         - CloudWatchFullAccess
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt DailyReportTopic.TopicName
 
 
 
@@ -48,6 +57,12 @@ Outputs:
     Value: !GetAtt ProcessInventoryIncrementalFunction.Arn
     Export:
       Name: !Sub "${AWS::StackName}-ProcessInventoryIncrementalFunction"
+
+  DailyReportTopic:
+    Description: "SNS Topic ARN for daily reports"
+    Value: !Ref DailyReportTopic
+    Export:
+      Name: !Sub "${AWS::StackName}-DailyReportTopic"
 
   S3BucketName:
     Description: "S3 Bucket name for inventory files"

@@ -1,0 +1,18 @@
+# Exclude zip files
+*.zip
+
+# Exclude SAM build artifacts
+.aws-sam/
+
+# Exclude test files
+test-*.json
+*-test.json
+tests/
+
+# Exclude documentation
+*.md
+README*
+CHANGELOG*
+
+# Note: Keep package small but don't exclude core dependencies
+
