@@ -14,10 +14,12 @@ The incremental import system processes inventory files by comparing new data wi
 When a new inventory file is uploaded:
 
 1. **Load Baseline**: Retrieve the previous baseline data from S3
-2. **Process New File**: Convert the new Excel file to structured data
-3. **Compare Data**: Identify changes between new and baseline data
-4. **Generate Delta**: Create a CSV file with only changed records
-5. **Update Baseline**: Save the new data as the new baseline
+2. **Process New File**: Convert the new file (Excel .xls/.xlsx or CSV) to structured data
+3. **Preserve Original**: Copy original file to `processed/originals/` with timestamp
+4. **Compare Data**: Identify changes between new and baseline data
+5. **Generate Delta**: Create a CSV file with only changed records
+6. **Update Baseline**: Save the new data as the new baseline
+7. **Send Daily Report**: Automatically send processing summary via SNS
 
 ### 3. **Change Types Detected**
 
@@ -30,34 +32,49 @@ When a new inventory file is uploaded:
   - `Variant Inventory Qty` (quantity changes)
   - `Variant Metafield: custom.internal_discontinued [single_line_text_field]` (discontinued status changes)
 
+**Important**: The system tracks discontinued status changes independently of quantity changes. This means:
+- A product with only discontinued status changes (no quantity change) will be included in the delta file
+- This ensures Shopify receives updates for discontinued status changes even when inventory quantities remain the same
+- Change reasons will clearly indicate "Discontinued status changed" for these updates
+
 #### **Deleted Products** (`changeType: 'deleted'`)
 - UPCs that exist in the baseline but not in the new file
 - These products are set to quantity 0 and marked as removed
+- **Daily Reporting**: UPC/Variant Barcodes are included in daily reports for store review
+- **Context Information**: Shows last known quantity and discontinued status
 
 ## File Structure
 
 ```
 S3 Bucket: valleyridge-inventory-sync/
-├── incoming/                    # Original Excel files from vendor
+├── incoming/                    # Original files from vendor (.xls, .xlsx, .csv)
 ├── processed/
 │   ├── delta/                   # Delta files (only changes)
 │   │   └── loloi-inventory-delta-2024-01-15T10-00-00-000Z.csv
-│   └── latest/
-│       └── inventory-delta.csv  # Latest delta file for Matrixify
+│   ├── latest/
+│   │   └── inventory-delta.csv  # Latest delta file for Matrixify
+│   └── originals/               # Preserved original files with timestamps
+│       └── Loloi_Inventory w. UPC-2024-01-15T10-00-00-000Z.csv
 └── baseline/
     └── inventory-baseline.json  # Baseline data for comparison
 ```
 
 ## Delta File Format
 
-The delta CSV files include all standard Matrixify columns plus change tracking:
+The delta CSV files include all standard Matrixify columns plus change tracking and tags:
 
 ```csv
-Variant Barcode,Variant Inventory Qty,Variant Metafield: custom.internal_discontinued [single_line_text_field],changeType,changeReason
-1234567890123,50,No,new,New product
-9876543210987,25,No,updated,Quantity changed from 30 to 25
-5556667778889,0,Yes,deleted,Product removed from inventory
+Variant Barcode,Variant Inventory Qty,Variant Metafield: custom.internal_discontinued [single_line_text_field],changeType,changeReason,Tags
+1234567890123,50,No,new,New product,
+9876543210987,25,No,updated,Quantity changed from 30 to 25,
+5556667778889,0,Yes,deleted,Product removed from inventory,Discontinued
 ```
+
+### **Tags Column**
+- **Purpose**: Provides product categorization for Shopify/Matrixify imports
+- **Discontinued Items**: Items with `discontinued = Yes` automatically get `Tags: "Discontinued"`
+- **Active Items**: Items with `discontinued = No` have empty Tags column
+- **All Change Types**: Tags column is included for new, updated, and deleted products
 
 ## Benefits
 
@@ -97,6 +114,83 @@ The system can be configured via environment variables:
 - `S3_BUCKET`: S3 bucket name (default: valleyridge-inventory-sync)
 - `SUPPORT_EMAIL`: Email for error notifications
 - `LOG_LEVEL`: Logging level (INFO, DEBUG, ERROR)
+- `SNS_TOPIC_ARN`: SNS topic ARN for daily reports and error notifications
+
+### **File Format Support**
+
+The system supports multiple file formats:
+- **Excel Files**: `.xls` and `.xlsx` formats
+- **CSV Files**: Direct CSV processing with support for Loloi's format
+- **Column Mapping**: Automatically handles different column names:
+  - Quantity: `Available Qty` or `ATSQty`
+  - UPC: `UPC` (case-insensitive)
+  - Discontinued: `Discontinued` (case-insensitive)
+
+## Daily Reporting System
+
+### **Automated Daily Reports**
+
+The system automatically sends detailed daily reports via SNS notifications after each processing run:
+
+#### **Report Contents**
+- **Processing Summary**: Total records processed, delta records generated
+- **Change Breakdown**: 
+  - Inventory changes only
+  - Discontinued status changes only  
+  - Both inventory and discontinued changes
+- **Discontinued with Zero Inventory**: List of UPCs that are discontinued and have zero inventory
+- **Tags Column**: All delta files now include Tags column for discontinued product categorization
+- **Processing Status**: Success/failure status and file locations
+
+#### **Report Format**
+```
+📊 Valley Ridge Inventory Sync - Daily Report
+⏰ Processed: Jan 15, 2024, 6:05 AM EST
+📁 File: incoming/loloi-inventory-2024-01-15.xlsx
+
+📈 SUMMARY:
+• Total Records Processed: 43,188
+• Delta Records Generated: 1,247
+• New Products: 23
+• Updated Products: 1,201
+• Deleted Products: 23
+
+🔄 CHANGE BREAKDOWN:
+• Inventory Changes Only: 1,156
+• Discontinued Status Changes Only: 32
+• Both Changes: 13
+
+⚠️ DISCONTINUED WITH ZERO INVENTORY (45 items):
+• UPC: 123456789012
+• UPC: 987654321098
+• ... and 43 more
+
+✅ Status: success
+📊 Delta file: processed/delta/loloi-inventory-delta-2024-01-15T06-05-00-000Z.csv
+```
+
+### **Setup Daily Reports**
+
+1. **Deploy with SNS Support**:
+   ```bash
+   ./scripts/setup-daily-reporting.sh
+   ```
+
+2. **Subscribe Email Addresses**: The script will prompt for email addresses to receive reports
+
+3. **Confirm Subscriptions**: Check email and confirm SNS subscriptions
+
+### **Manual Subscription Management**
+
+```bash
+# Add email subscription
+aws sns subscribe --topic-arn arn:aws:sns:us-east-1:ACCOUNT:valleyridge-inventory-daily-reports \
+  --protocol email --notification-endpoint your-email@example.com
+
+# List current subscriptions
+aws sns list-subscriptions-by-topic \
+  --topic-arn arn:aws:sns:us-east-1:ACCOUNT:valleyridge-inventory-daily-reports
+```
 
 ## Monitoring and Metrics
 

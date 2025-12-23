@@ -7,7 +7,19 @@
 
 ## 📋 Overview
 
-This system automates the process of receiving Excel inventory files from Loloi (vendor), processing them into CSV format, and making them available for import into Shopify via Matrixify. The system includes both full import and incremental/delta processing capabilities.
+This system provides **fully automated daily inventory synchronization** from Loloi (vendor) to Shopify via Matrixify. The system includes cost-optimized SFTP scheduling, automatic file processing, and seamless integration with Matrixify for daily imports.
+
+### 🎯 **Daily Automation Flow**
+- **5:30 AM ET**: SFTP server starts automatically (30 minutes before upload window)
+- **6:00 AM ET**: Loloi uploads daily inventory file
+- **6:00-6:05 AM ET**: Automatic processing to Shopify format
+- **7:00 AM ET**: Matrixify imports processed data to Shopify
+- **7:00 AM ET**: SFTP server shuts down automatically (1 hour after typical arrival)
+
+### 💰 **Cost Optimization**
+- **94% cost reduction**: SFTP server runs 1.5 hours/day instead of 24/7
+- **Monthly savings**: ~$202 (from $216 to ~$13.50)
+- **Annual savings**: ~$2,430
 
 ## 🏗️ Architecture
 
@@ -20,11 +32,12 @@ This system automates the process of receiving Excel inventory files from Loloi 
 ## 🚀 Features
 
 ### Core Features
-- ✅ **Automatic Processing**: Excel files uploaded to S3 trigger Lambda processing
+- ✅ **Fully Automated Daily Sync**: Complete end-to-end automation from vendor to Shopify
+- ✅ **Cost-Optimized SFTP**: Automated start/stop scheduling (89% cost reduction)
+- ✅ **Automatic Processing**: Excel/CSV files trigger Lambda processing
 - ✅ **Case-Insensitive Headers**: Handles variations in column names
-- ✅ **File Extension Detection**: Works with files that have no extensions
+- ✅ **Multi-Format Support**: Excel (.xls, .xlsx) and CSV file processing
 - ✅ **Pre-signed URLs**: Generates temporary URLs for Matrixify access
-- ✅ **SFTP Integration**: Secure file transfer for vendor uploads
 - ✅ **Vendor SFTP Delivery**: Active integration with Loloi for automated file delivery
 
 ### Advanced Features
@@ -32,29 +45,53 @@ This system automates the process of receiving Excel inventory files from Loloi 
 - 🆕 **Change Tracking**: Identifies new, updated, and deleted products
 - 🆕 **Performance Optimization**: 80-95% reduction in file sizes
 - 🆕 **Audit Trail**: Detailed change logging and reasons
+- 🆕 **Smart Scheduling**: EventBridge Scheduler with timezone-aware cron expressions
+- 🆕 **Comprehensive Monitoring**: CloudWatch alarms and metrics
+- 🆕 **Enhanced Daily Reporting**: Automated SNS reports with UPC tracking for deleted products
+- 🆕 **System Optimization**: Single optimized processing pipeline
+- 🆕 **CSV Column Mapping**: Smart mapping for Loloi's format (ATSQty, InStock, UPC)
+- 🆕 **File Preservation**: Original files automatically preserved with timestamps
+- 🆕 **Multi-Format Support**: Excel (.xls, .xlsx) and CSV file processing
+- 🆕 **Tags Column**: Automatic "Discontinued" tagging for discontinued products
 
 ## 📁 Project Structure
 
 ```
 valleyridge-inventory-sync/
 ├── functions/
-│   └── process-inventory/          # Main Lambda function
-│       ├── index.js               # Full import processing logic
-│       ├── incremental-processor.js # Incremental processing logic
-│       ├── template.yaml          # SAM template (full import)
-│       ├── template-incremental.yaml # SAM template (incremental)
+│   ├── process-inventory/          # Main Lambda function
+│   │   ├── index.js               # Full import processing logic
+│   │   ├── incremental-processor.js # Incremental processing logic
+│   │   ├── template.yaml          # SAM template (full import)
+│   │   ├── template-incremental.yaml # SAM template (incremental)
+│   │   ├── samconfig.toml         # Deployment config
+│   │   ├── samconfig-incremental.toml # Incremental deployment config
+│   │   └── package.json           # Dependencies
+│   ├── sftp-scheduler/            # SFTP cost optimization
+│   │   ├── index.js               # Start/stop SFTP server logic
+│   │   ├── template.yaml          # SAM template for scheduler
+│   │   ├── samconfig.toml         # Deployment config
+│   │   └── package.json           # Dependencies
+│   └── file-preserver/            # Original file preservation
+│       ├── index.js               # File preservation logic
+│       ├── template.yaml          # SAM template for file preserver
 │       ├── samconfig.toml         # Deployment config
-│       ├── samconfig-incremental.toml # Incremental deployment config
 │       └── package.json           # Dependencies
 ├── docs/
 │   ├── vendor-onboarding-loloi.md # Vendor setup instructions
 │   ├── matrixify-results-setup.md # Matrixify configuration
-│   └── incremental-import-system.md # Incremental processing documentation
+│   ├── incremental-import-system.md # Incremental processing documentation
+│   └── automated-daily-schedule.md # Daily automation schedule details
 ├── scripts/
 │   ├── sync-matrixify-results.sh  # Sync Matrixify results to S3
 │   ├── get-import-url.sh          # Generate pre-signed URLs
 │   ├── deploy-incremental.sh      # Deploy incremental processing system
-│   └── test-incremental.sh        # Test incremental processing functionality
+│   ├── test-incremental.sh        # Test incremental processing functionality
+│   ├── deploy-sftp-scheduler.sh   # Deploy SFTP cost optimization
+│   ├── deploy-file-preserver.sh   # Deploy file preservation system
+│   ├── monitor-sftp-costs.sh      # Monitor SFTP status and costs
+│   ├── setup-sftp-monitoring.sh   # Setup CloudWatch alarms
+│   └── setup-daily-reporting.sh   # Setup SNS daily reporting
 ├── credentials/                   # Secure credential storage (gitignored)
 ├── README.md                      # This file
 ├── INCREMENTAL_IMPORT_SUMMARY.md  # Incremental system summary
@@ -119,40 +156,60 @@ The system requires the following AWS permissions:
 - **S3**: Read/Write access to inventory bucket
 - **Lambda**: Create/Update/Delete functions
 - **CloudWatch**: Logging and metrics
+- **EventBridge Scheduler**: Create/Update schedules (policy: `ValleyRidgeSchedulerManagement`)
 - **IAM**: Role creation and management
 - **Transfer Family**: SFTP server management
 
 ## 📊 Usage
 
-### Full Import Processing
+### 🎯 **Automated Daily Processing (Production)**
 
-The system automatically processes Excel files when uploaded to the S3 bucket:
+The system runs **fully automatically** every day:
 
-1. Upload Excel file to `s3://valleyridge-inventory-sync/incoming/`
-2. Lambda function processes the file
-3. CSV file created in `s3://valleyridge-inventory-sync/processed/latest/`
-4. Use the CSV file for Matrixify import
+1. **5:30 AM ET**: SFTP server starts automatically
+2. **6:00 AM ET**: Loloi uploads daily inventory file via SFTP
+3. **6:00-6:05 AM ET**: Lambda processes file automatically
+4. **7:00 AM ET**: Matrixify imports processed data to Shopify
+5. **7:00 AM ET**: SFTP server stops automatically
 
-### Incremental Processing
+**No manual intervention required!**
 
-For incremental processing (recommended):
+### 🔧 **Setup & Deployment**
+
+Deploy the complete system:
+```bash
+# Deploy main processing system
+cd functions/process-inventory
+sam deploy --config-file samconfig.toml
+
+# Deploy SFTP cost optimization
+./scripts/deploy-sftp-scheduler.sh
+
+# Setup monitoring
+./scripts/setup-sftp-monitoring.sh
+```
+
+### 📊 **Monitoring & Maintenance**
+
+Monitor the system:
+```bash
+# Check SFTP status and costs
+./scripts/monitor-sftp-costs.sh
+
+# Generate Matrixify import URL
+./scripts/get-import-url.sh
+
+# Sync Matrixify results
+./scripts/sync-matrixify-results.sh
+```
+
+### 🔄 **Incremental Processing (Optional)**
+
+For faster imports with delta files:
 
 1. Deploy incremental system: `./scripts/deploy-incremental.sh`
 2. Test the system: `./scripts/test-incremental.sh`
-3. Upload files to trigger delta processing
-4. Use delta files for faster Matrixify imports
-
-### Manual Operations
-
-Generate pre-signed URL for Matrixify:
-```bash
-./scripts/get-import-url.sh
-```
-
-Sync Matrixify results:
-```bash
-./scripts/sync-matrixify-results.sh
-```
+3. Use delta files for faster Matrixify imports
 
 ## 📈 Monitoring
 
