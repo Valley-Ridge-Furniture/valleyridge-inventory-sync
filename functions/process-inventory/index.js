@@ -74,14 +74,14 @@ async function processS3Event(record, requestId) {
     
     // Validate file
     if (!isValidFile(key)) {
-        throw new Error(`Invalid file type: ${key}. Expected .xls or .xlsx file`);
+        throw new Error(`Invalid file type: ${key}. Expected .xls, .xlsx, or .csv file`);
     }
     
     // Download file from S3
     const fileData = await downloadFromS3(bucket, key, requestId);
     
-    // Process Excel file
-    const processedData = await processExcelFile(fileData, requestId);
+    // Process file based on type
+    const processedData = await processFile(fileData, key, requestId);
     
     // Generate CSV
     const csvData = await generateCSV(processedData, requestId);
@@ -89,6 +89,9 @@ async function processS3Event(record, requestId) {
     // Upload processed file to S3
     const outputKey = generateOutputKey(key);
     await uploadToS3(csvData, outputKey, requestId);
+    
+    // Preserve original file in processed folder
+    await preserveOriginalFile(bucket, key, requestId);
     
     // Update latest file
     await updateLatestFile(csvData, requestId);
@@ -104,12 +107,12 @@ async function processS3Event(record, requestId) {
 }
 
 /**
- * Validate if file is a supported Excel format
+ * Validate if file is a supported format
  * @param {string} key - S3 object key
  * @returns {boolean} - True if valid
  */
 function isValidFile(key) {
-    const validExtensions = ['.xls', '.xlsx'];
+    const validExtensions = ['.xls', '.xlsx', '.csv'];
     const extension = path.extname(key).toLowerCase();
     
     // Accept files with valid extensions
@@ -117,7 +120,7 @@ function isValidFile(key) {
         return true;
     }
     
-    // Also accept files without extensions (they will be validated as Excel files during processing)
+    // Also accept files without extensions (they will be validated during processing)
     if (!extension || extension === '') {
         return true;
     }
@@ -149,6 +152,71 @@ async function downloadFromS3(bucket, key, requestId) {
     } catch (error) {
         console.error(`[${requestId}] Error downloading from S3:`, error);
         throw new Error(`Failed to download file from S3: ${error.message}`);
+    }
+}
+
+/**
+ * Process file and extract inventory data (supports Excel and CSV)
+ * @param {Buffer} fileData - File data
+ * @param {string} key - S3 object key
+ * @param {string} requestId - Request ID for logging
+ * @returns {Array} - Processed inventory data
+ */
+async function processFile(fileData, key, requestId) {
+    const extension = path.extname(key).toLowerCase();
+    
+    if (extension === '.csv') {
+        return await processCsvFile(fileData, requestId);
+    } else {
+        return await processExcelFile(fileData, requestId);
+    }
+}
+
+/**
+ * Process CSV file and extract inventory data
+ * @param {Buffer} fileData - CSV file data
+ * @param {string} requestId - Request ID for logging
+ * @returns {Array} - Processed inventory data
+ */
+async function processCsvFile(fileData, requestId) {
+    console.log(`[${requestId}] Processing CSV file`);
+    
+    try {
+        // Convert buffer to string
+        const csvContent = fileData.toString('utf8');
+        
+        // Split into lines
+        const lines = csvContent.split('\n').filter(line => line.trim());
+        
+        if (lines.length < 2) {
+            throw new Error('CSV file must contain at least a header row and one data row');
+        }
+        
+        // Parse headers
+        const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+        const dataRows = lines.slice(1).map(line => 
+            line.split(',').map(cell => cell.trim().replace(/"/g, ''))
+        );
+        
+        console.log(`[${requestId}] Found ${dataRows.length} data rows`);
+        console.log(`[${requestId}] Headers:`, headers);
+        
+        // Validate required columns
+        validateHeaders(headers, requestId);
+        
+        // Process data rows
+        const processedData = dataRows
+            .filter(row => row.length > 0) // Remove empty rows
+            .map((row, index) => processDataRow(row, headers, index + 2, requestId))
+            .filter(item => item !== null); // Remove invalid rows
+        
+        console.log(`[${requestId}] Processed ${processedData.length} valid rows`);
+        
+        return processedData;
+        
+    } catch (error) {
+        console.error(`[${requestId}] Error processing CSV file:`, error);
+        throw new Error(`Failed to process CSV file: ${error.message}`);
     }
 }
 
@@ -214,9 +282,12 @@ function validateHeaders(headers, requestId) {
     const normalizedHeaders = headers.filter(h => h && h.trim()).map(h => h.trim());
     
     // Check for required columns with case-insensitive matching
-    const requiredColumns = ['UPC', 'Available QTY', 'Discontinued'];
+    // Support both old format and Loloi's new format
+    const requiredColumns = ['UPC', 'Discontinued'];
+    const quantityColumns = ['Available QTY', 'ATSQty']; // Support quantity column names
     const missingColumns = [];
     
+    // Check for UPC and Discontinued
     for (const requiredCol of requiredColumns) {
         const found = normalizedHeaders.some(header => 
             header.toLowerCase() === requiredCol.toLowerCase()
@@ -224,6 +295,17 @@ function validateHeaders(headers, requestId) {
         if (!found) {
             missingColumns.push(requiredCol);
         }
+    }
+    
+    // Check for at least one quantity column
+    const hasQuantityColumn = quantityColumns.some(col => 
+        normalizedHeaders.some(header => 
+            header.toLowerCase() === col.toLowerCase()
+        )
+    );
+    
+    if (!hasQuantityColumn) {
+        missingColumns.push(`One of: ${quantityColumns.join(', ')}`);
     }
     
     if (missingColumns.length > 0) {
@@ -276,10 +358,20 @@ function processDataRow(row, headers, rowNumber, requestId) {
             return null;
         }
         
-        // Validate quantity
-        const quantity = parseInt(getValue('Available QTY')) || 0;
+        // Validate quantity - use ATSQty or Available QTY, ignore InStock
+        let quantity = 0;
+        
+        // Try quantity column names (ATSQty or Available QTY only)
+        const quantityValue = getValue('Available QTY') || getValue('ATSQty');
+        
+        if (quantityValue) {
+            // Parse as number
+            quantity = parseInt(quantityValue) || 0;
+        }
+        
         if (quantity < 0) {
             console.warn(`[${requestId}] Row ${rowNumber}: Negative quantity for UPC ${upc}, setting to 0`);
+            quantity = 0;
         }
         
         // Process discontinued status
@@ -377,6 +469,47 @@ async function uploadToS3(csvData, key, requestId) {
     } catch (error) {
         console.error(`[${requestId}] Error uploading to S3:`, error);
         throw new Error(`Failed to upload to S3: ${error.message}`);
+    }
+}
+
+/**
+ * Preserve original file in processed folder with timestamp
+ * @param {string} bucket - S3 bucket name
+ * @param {string} key - Original file key
+ * @param {string} requestId - Request ID for logging
+ */
+async function preserveOriginalFile(bucket, key, requestId) {
+    console.log(`[${requestId}] Preserving original file: s3://${bucket}/${key}`);
+    
+    try {
+        // Generate timestamped filename for original file
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const baseName = path.basename(key);
+        const extension = path.extname(key);
+        const nameWithoutExt = path.basename(key, extension);
+        const originalKey = `processed/originals/${nameWithoutExt}-${timestamp}${extension}`;
+        
+        // Copy original file to processed/originals/ with timestamp
+        const copyParams = {
+            Bucket: S3_BUCKET,
+            CopySource: `${bucket}/${encodeURIComponent(key)}`,
+            Key: originalKey,
+            MetadataDirective: 'COPY',
+            Metadata: {
+                'original-source': key,
+                'preserved-at': new Date().toISOString(),
+                'preserved-by': 'valleyridge-inventory-sync',
+                'request-id': requestId
+            }
+        };
+        
+        await s3.copyObject(copyParams).promise();
+        console.log(`[${requestId}] Successfully preserved original file: ${originalKey}`);
+        
+    } catch (error) {
+        console.error(`[${requestId}] Error preserving original file:`, error);
+        // Don't throw error for original file preservation failure
+        // This is important but shouldn't break the main processing
     }
 }
 
