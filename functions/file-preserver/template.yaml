@@ -1,0 +1,46 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: File Preserver Lambda - Preserves original inventory files
+
+Parameters:
+  S3BucketName:
+    Type: String
+    Default: valleyridge-inventory-sync
+    Description: S3 bucket name for inventory files
+
+Globals:
+  Function:
+    Timeout: 60
+    MemorySize: 256
+    Runtime: nodejs20.x
+    Architectures:
+      - x86_64
+
+Resources:
+  FilePreserverFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: valleyridge-file-preserver
+      CodeUri: ./
+      Handler: index.handler
+      Description: Preserves original inventory files before processing
+      Environment:
+        Variables:
+          S3_BUCKET: !Ref S3BucketName
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref S3BucketName
+        - S3CrudPolicy:
+            BucketName: !Ref S3BucketName
+      # Note: S3 event trigger will be configured manually to avoid conflicts
+      # with existing bucket and other Lambda triggers
+
+Outputs:
+  FilePreserverFunction:
+    Description: File Preserver Lambda Function ARN
+    Value: !GetAtt FilePreserverFunction.Arn
+  
+  S3BucketName:
+    Description: S3 Bucket name for inventory files
+    Value: !Ref S3BucketName
+

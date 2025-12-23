@@ -1,0 +1,81 @@
+{
+  "LambdaFunctionConfigurations": [
+    {
+      "Id": "FilePreserverTrigger",
+      "LambdaFunctionArn": "arn:aws:lambda:us-east-1:413362489612:function:valleyridge-file-preserver",
+      "Events": ["s3:ObjectCreated:*"],
+      "Filter": {
+        "Key": {
+          "FilterRules": [
+            {
+              "Name": "Prefix",
+              "Value": "processed/delta/"
+            },
+            {
+              "Name": "Suffix",
+              "Value": ".csv"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "Id": "ProcessInventoryTriggerXLS",
+      "LambdaFunctionArn": "arn:aws:lambda:us-east-1:413362489612:function:valleyridge-process-inventory-incremental",
+      "Events": ["s3:ObjectCreated:*"],
+      "Filter": {
+        "Key": {
+          "FilterRules": [
+            {
+              "Name": "Prefix",
+              "Value": "incoming/"
+            },
+            {
+              "Name": "Suffix",
+              "Value": ".xls"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "Id": "ProcessInventoryTriggerXLSX",
+      "LambdaFunctionArn": "arn:aws:lambda:us-east-1:413362489612:function:valleyridge-process-inventory-incremental",
+      "Events": ["s3:ObjectCreated:*"],
+      "Filter": {
+        "Key": {
+          "FilterRules": [
+            {
+              "Name": "Prefix",
+              "Value": "incoming/"
+            },
+            {
+              "Name": "Suffix",
+              "Value": ".xlsx"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "Id": "ProcessInventoryTriggerCSV",
+      "LambdaFunctionArn": "arn:aws:lambda:us-east-1:413362489612:function:valleyridge-process-inventory-incremental",
+      "Events": ["s3:ObjectCreated:*"],
+      "Filter": {
+        "Key": {
+          "FilterRules": [
+            {
+              "Name": "Prefix",
+              "Value": "incoming/"
+            },
+            {
+              "Name": "Suffix",
+              "Value": ".csv"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
+

@@ -1,0 +1,22 @@
+{
+  "name": "valleyridge-sftp-scheduler",
+  "version": "1.0.0",
+  "description": "Lambda function to start/stop SFTP server on schedule for cost optimization",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "aws-sdk": "^2.1691.0"
+  },
+  "keywords": [
+    "aws",
+    "lambda",
+    "sftp",
+    "transfer-family",
+    "cost-optimization"
+  ],
+  "author": "Valley Ridge Furniture",
+  "license": "MIT"
+}
+

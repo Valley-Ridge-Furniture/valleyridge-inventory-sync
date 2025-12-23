@@ -1,0 +1,16 @@
+{
+  "name": "file-preserver",
+  "version": "1.0.0",
+  "description": "Lambda function to preserve original inventory files",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"No tests yet\""
+  },
+  "dependencies": {
+    "aws-sdk": "^2.1450.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
+

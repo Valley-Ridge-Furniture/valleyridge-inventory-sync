@@ -1,0 +1,121 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 'Valley Ridge SFTP Scheduler - Cost Optimization'
+
+Globals:
+  Function:
+    Timeout: 900
+    MemorySize: 256
+    Runtime: nodejs18.x
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues: [dev, staging, prod]
+    Description: Environment name
+  SFTPServerID:
+    Type: String
+    Default: s-34ce3bb4895a4fac8
+    Description: SFTP Server ID to manage
+
+Resources:
+  SFTPSchedulerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'valleyridge-sftp-scheduler-${Environment}'
+      CodeUri: ./
+      Handler: index.handler
+      Description: 'Start/stop SFTP server on schedule for cost optimization'
+      Environment:
+        Variables:
+          SFTP_SERVER_ID: !Ref SFTPServerID
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - transfer:StartServer
+                - transfer:StopServer
+                - transfer:DescribeServer
+              Resource: 
+                - !Sub 'arn:aws:transfer:${AWS::Region}:${AWS::AccountId}:server/${SFTPServerID}'
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - cloudwatch:PutMetricData
+              Resource: '*'
+  SFTPSchedulerInvokeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: InvokeSFTPSchedulerLambda
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt SFTPSchedulerFunction.Arn
+
+  StartSFTPSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: StartSFTPServer
+      Description: 'Start SFTP server 30 minutes before expected upload'
+      ScheduleExpression: cron(30 5 * * ? *)
+      ScheduleExpressionTimezone: America/New_York
+      FlexibleTimeWindow:
+        Mode: 'OFF'
+      Target:
+        Arn: !GetAtt SFTPSchedulerFunction.Arn
+        RoleArn: !GetAtt SFTPSchedulerInvokeRole.Arn
+        Input: '{"action": "start"}'
+
+  StopSFTPSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: StopSFTPServer
+      Description: 'Stop SFTP server 1 hour after expected upload'
+      ScheduleExpression: cron(0 7 * * ? *)
+      ScheduleExpressionTimezone: America/New_York
+      FlexibleTimeWindow:
+        Mode: 'OFF'
+      Target:
+        Arn: !GetAtt SFTPSchedulerFunction.Arn
+        RoleArn: !GetAtt SFTPSchedulerInvokeRole.Arn
+        Input: '{"action": "stop"}'
+
+  AllowSchedulerStartInvoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt SFTPSchedulerFunction.Arn
+      Principal: scheduler.amazonaws.com
+      SourceArn: !GetAtt StartSFTPSchedule.Arn
+
+  AllowSchedulerStopInvoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt SFTPSchedulerFunction.Arn
+      Principal: scheduler.amazonaws.com
+      SourceArn: !GetAtt StopSFTPSchedule.Arn
+
+Outputs:
+  SFTPSchedulerFunction:
+    Description: "SFTP Scheduler Lambda Function ARN"
+    Value: !GetAtt SFTPSchedulerFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-SFTP-Scheduler-Function'
