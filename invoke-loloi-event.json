@@ -1,0 +1,25 @@
+{
+  "Records": [
+    {
+      "eventVersion": "2.1",
+      "eventSource": "aws:s3",
+      "awsRegion": "us-east-1",
+      "eventTime": "2025-10-13T22:42:28.000Z",
+      "eventName": "ObjectCreated:Put",
+      "s3": {
+        "s3SchemaVersion": "1.0",
+        "configurationId": "ProcessInventoryTriggerCSV",
+        "bucket": {
+          "name": "valleyridge-inventory-sync",
+          "arn": "arn:aws:s3:::valleyridge-inventory-sync"
+        },
+        "object": {
+          "key": "incoming/Loloi_Inventory-w-UPC-reprocess-20251013-224228.csv",
+          "size": 1968848
+        }
+      }
+    }
+  ]
+}
+
+
